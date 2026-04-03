@@ -7,7 +7,12 @@ inotify — Listen for events on files and directories
 **inotify::queue create** *objectName* *callback*  
 **inotify::queue new** *callback*  
 *objectName* **add_watch** *path* ?*mask*?  
-*objectName* **rm_watch** *path*
+*objectName* **rm_watch** *path*  
+*objectName* **destroy**
+
+**inotify::watchdir create** *objectName* *dir*  
+**inotify::watchdir new** *dir*  
+*objectName* **destroy**
 
 # DESCRIPTION
 
@@ -90,7 +95,10 @@ collapsed into one.
 
 When a queue is deleted, all watches registered for it are removed.
 
-# COMMANDS
+# inotify::queue CLASS
+
+The **inotify::queue** class wraps a raw inotify file descriptor in a
+TclOO object that delivers events asynchronously through a callback.
 
 **inotify::queue create** *objectName* *callback*  
 Create a queue object named *objectName*.
@@ -124,7 +132,56 @@ Remove a path from the list of watched paths. If *path* is not watched
 then an error is raised.
 
 *objectName* **destroy**  
-Delete a queue. All watches feeding this queue are removed.
+Delete the queue. All watches feeding this queue are removed and the
+underlying channel is closed.
+
+# inotify::watchdir CLASS
+
+The **inotify::watchdir** class recursively watches a directory tree for
+file creation and deletion. It is designed to be subclassed — override
+the **new_file** and **remove_file** methods to respond to events. It
+uses an **inotify::queue** internally to manage watches.
+
+When constructed, it scans the directory tree for existing files
+(calling **new_file** for each) and installs watches on every
+subdirectory. New subdirectories created after construction are
+automatically watched.
+
+Files larger than *maxsize* bytes (default 1048576, i.e. 1 MiB) are
+ignored. To change the limit, set the *maxsize* variable before calling
+**next** in a subclass constructor.
+
+**inotify::watchdir create** *objectName* *dir*  
+Create a watchdir object named *objectName* watching *dir*.
+
+**inotify::watchdir new** *dir*  
+Create a watchdir object with an auto-generated name watching *dir*.
+
+*objectName* **destroy**  
+Stop watching and clean up. The internal queue and all watches are
+destroyed.
+
+## Methods for subclass override
+
+The following methods are called by the watchdir when file events occur.
+The default implementations are no-ops. Override them in a subclass to
+take action.
+
+*objectName* **new_file** *normpath*  
+Called when a file is created or written (**IN_CLOSE_WRITE**,
+**IN_MOVED_TO**). *normpath* is the full path after **normalize_path**
+processing.
+
+*objectName* **remove_file** *normpath*  
+Called when a file is deleted or moved away (**IN_DELETE**,
+**IN_MOVED_FROM**). *normpath* is the full path after **normalize_path**
+processing.
+
+*objectName* **normalize_path** *fqpath*  
+Called to transform a fully qualified path before it is passed to
+**new_file** or **remove_file**. The default implementation returns
+*fqpath* unchanged. Override to apply project-specific path
+normalization.
 
 # EXAMPLE
 
@@ -168,6 +225,28 @@ Event happened:
   mask       IN_CLOSE_WRITE
   cookie     0
   name       foo
+```
+
+Subclass **inotify::watchdir** to react to files appearing in a
+directory tree:
+
+``` tcl
+package require inotify
+
+oo::class create my_watcher {
+    superclass inotify::watchdir
+
+    method new_file normpath {
+        puts "New file: $normpath"
+    }
+
+    method remove_file normpath {
+        puts "Removed: $normpath"
+    }
+}
+
+my_watcher create watcher /path/to/watched/dir
+vwait ::forever
 ```
 
 # LIMITS
