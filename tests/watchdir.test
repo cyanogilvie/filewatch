@@ -1,0 +1,205 @@
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> shiftwidth=4 ts=4
+
+if {[lsearch [namespace children] ::tcltest] == -1} {
+	package require tcltest 2.2.5
+	namespace import ::tcltest::*
+}
+
+
+::tcltest::loadTestedCommands
+
+test watchdir-1.1 {Create and destroy watchdir} -setup { #<<<
+	set dir	[makeDirectory watchdir_test]
+} -body {
+	set wd	[inotify::watchdir new $dir]
+	set is_obj	[info object isa object $wd]
+	$wd destroy
+	set is_gone	[expr {![info object isa object $wd]}]
+	list $is_obj $is_gone
+} -cleanup {
+	unset -nocomplain wd dir is_obj is_gone
+} -result {1 1}
+#>>>
+test watchdir-1.2 {Watchdir detects new file via subclass} -setup { #<<<
+	set dir	[makeDirectory watchdir_new]
+
+	oo::class create test_wd {
+		superclass inotify::watchdir
+		variable seen
+		constructor dir {
+			set seen {}
+			next $dir
+		}
+		method new_file normpath {
+			lappend seen $normpath
+			set ::wd_done 1
+		}
+		method remove_file normpath {}
+		method get_seen {} {set seen}
+	}
+} -body {
+	set wd	[test_wd new $dir]
+
+	set fp [open [file join $dir testfile.txt] w]
+	puts $fp "hello"
+	close $fp
+
+	after 300 {set ::wd_done timeout}
+	vwait ::wd_done
+
+	set seen [$wd get_seen]
+	expr {[file join $dir testfile.txt] in $seen}
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	catch {test_wd destroy}
+	file delete -force [file join $dir testfile.txt]
+	unset -nocomplain wd dir fp seen ::wd_done
+} -result 1
+#>>>
+test watchdir-1.3 {Watchdir detects file removal via subclass} -setup { #<<<
+	set dir	[makeDirectory watchdir_rm]
+
+	oo::class create test_wd_rm {
+		superclass inotify::watchdir
+		variable removed
+		constructor dir {
+			set removed {}
+			next $dir
+		}
+		method new_file normpath {}
+		method remove_file normpath {
+			lappend removed $normpath
+			set ::wd_rm_done 1
+		}
+		method get_removed {} {set removed}
+	}
+
+	close [open [file join $dir rmfile.txt] w]
+} -body {
+	set wd	[test_wd_rm new $dir]
+
+	file delete [file join $dir rmfile.txt]
+
+	after 300 {set ::wd_rm_done timeout}
+	vwait ::wd_rm_done
+
+	set removed [$wd get_removed]
+	expr {[file join $dir rmfile.txt] in $removed}
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	catch {test_wd_rm destroy}
+	unset -nocomplain wd dir removed ::wd_rm_done
+} -result 1
+#>>>
+test watchdir-1.4 {Watchdir picks up existing files} -setup { #<<<
+	set dir	[makeDirectory watchdir_existing]
+	close [open [file join $dir existing.txt] w]
+
+	oo::class create test_wd_exist {
+		superclass inotify::watchdir
+		variable seen
+		constructor dir {
+			set seen {}
+			next $dir
+		}
+		method new_file normpath {
+			lappend seen $normpath
+		}
+		method remove_file normpath {}
+		method get_seen {} {set seen}
+	}
+} -body {
+	set wd	[test_wd_exist new $dir]
+	set seen [$wd get_seen]
+	expr {[file join $dir existing.txt] in $seen}
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	catch {test_wd_exist destroy}
+	file delete -force [file join $dir existing.txt]
+	unset -nocomplain wd dir seen
+} -result 1
+#>>>
+test watchdir-1.5 {Watchdir watches subdirectories} -setup { #<<<
+	set dir	[makeDirectory watchdir_sub]
+	file mkdir [file join $dir sub]
+
+	oo::class create test_wd_sub {
+		superclass inotify::watchdir
+		variable seen
+		constructor dir {
+			set seen {}
+			next $dir
+		}
+		method new_file normpath {
+			lappend seen $normpath
+			set ::wd_sub_done 1
+		}
+		method remove_file normpath {}
+		method get_seen {} {set seen}
+	}
+} -body {
+	set wd	[test_wd_sub new $dir]
+
+	set fp [open [file join $dir sub nested.txt] w]
+	puts $fp "nested"
+	close $fp
+
+	after 300 {set ::wd_sub_done timeout}
+	vwait ::wd_sub_done
+
+	set seen [$wd get_seen]
+	expr {[file join $dir sub nested.txt] in $seen}
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	catch {test_wd_sub destroy}
+	file delete -force [file join $dir sub]
+	unset -nocomplain wd dir fp seen ::wd_sub_done
+} -result 1
+#>>>
+test watchdir-1.6 {Watchdir respects maxsize} -setup { #<<<
+	set dir	[makeDirectory watchdir_maxsize]
+
+	oo::class create test_wd_maxsize {
+		superclass inotify::watchdir
+		variable seen maxsize
+		constructor dir {
+			set maxsize	10
+			set seen	{}
+			next $dir
+		}
+		method new_file normpath {
+			lappend seen $normpath
+		}
+		method remove_file normpath {}
+		method get_seen {} {set seen}
+	}
+} -body {
+	set wd	[test_wd_maxsize new $dir]
+
+	# Write a file larger than maxsize (10 bytes)
+	set fp [open [file join $dir big.txt] w]
+	puts $fp [string repeat x 100]
+	close $fp
+
+	# Write a small file within maxsize
+	set fp [open [file join $dir small.txt] w]
+	puts $fp "hi"
+	close $fp
+
+	after 300 {set ::wd_max_done 1}
+	vwait ::wd_max_done
+
+	set seen [$wd get_seen]
+	set got_big		[expr {[file join $dir big.txt] in $seen}]
+	set got_small	[expr {[file join $dir small.txt] in $seen}]
+	list $got_big $got_small
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	catch {test_wd_maxsize destroy}
+	file delete -force [file join $dir big.txt] [file join $dir small.txt]
+	unset -nocomplain wd dir fp seen got_big got_small ::wd_max_done
+} -result {0 1}
+#>>>
+
+::tcltest::cleanupTests
+return

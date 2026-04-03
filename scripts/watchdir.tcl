@@ -1,20 +1,18 @@
-# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
-
-oo::class create inotify::watchdir {
+oo::class create ::inotify::watchdir {
 	variable {*}{
 		queue
 		files
 		maxsize
 	}
 
-	constructor {dir} { #<<<
+	constructor dir { #<<<
 		if {[self next] ne ""} next
 		if {![info exists maxsize]} {
 			set maxsize	1048576
 		}
-		set files	[dict create]
+		set files	{}
 		set queue	[inotify::queue new [namespace code {my _fs_event}]]
-		my _setup_watches $dir
+		my _add_watches $dir
 	}
 
 	#>>>
@@ -27,12 +25,7 @@ oo::class create inotify::watchdir {
 	}
 
 	#>>>
-	method _fs_event {ev} { #<<<
-		?? {
-			puts "Event in watched dir:"
-			array set event $ev
-			parray event
-		}
+	method _fs_event ev { #<<<
 		set fqpath	[file join [dict get $ev path] [dict get $ev name]]
 		set mask	[dict get $ev mask]
 		if {"IN_ISDIR" in $mask} {
@@ -51,12 +44,7 @@ oo::class create inotify::watchdir {
 	}
 
 	#>>>
-	method _setup_watches {dir} { #<<<
-		my _add_watches $dir
-	}
-
-	#>>>
-	method _add_watches {dir} { #<<<
+	method _add_watches dir { #<<<
 		$queue add_watch $dir {
 			IN_CLOSE_WRITE
 			IN_CREATE
@@ -75,13 +63,13 @@ oo::class create inotify::watchdir {
 	}
 
 	#>>>
-	method _new_file {fqpath} { #<<<
+	method _new_file fqpath { #<<<
 		if {![file readable $fqpath]} {
-			puts stderr "New file is not readable: \"$fqpath\""
+			#puts stderr "New file is not readable: \"$fqpath\""
 			return
 		}
 		if {[file size $fqpath] > $maxsize} {
-			puts stderr "New file is bigger than the 1 MiB threshold, ignoring: \"$fqpath\""
+			#puts stderr "New file is bigger than the 1 MiB threshold, ignoring: \"$fqpath\""
 			return
 		}
 		dict set files $fqpath 1
@@ -89,35 +77,36 @@ oo::class create inotify::watchdir {
 	}
 
 	#>>>
-	method new_file {normpath} { #<<<
-	}
-
-	#>>>
-	method _remove_file {fqpath} { #<<<
+	method _remove_file fqpath { #<<<
 		if {[dict exists $files $fqpath]} {
 			dict unset files $fqpath
-			?? {puts "Forgot file \"$fqpath\""}
 			my remove_file [my normalize_path $fqpath]
 		}
 	}
 
 	#>>>
-	method remove_file {normpath} { #<<<
-	}
-
-	#>>>
-	method _deep_remove {fqpath} { #<<<
+	method _deep_remove fqpath { #<<<
 		foreach key [dict keys $files [file join $fqpath *]] {
 			my _remove_file $fqpath
 		}
 	}
 
 	#>>>
-	method normalize_path {fqpath} { #<<<
+
+	# Override these methods as needed to do something useful with the file events
+	method new_file normpath { #<<<
+	}
+
+	#>>>
+	method remove_file normpath { #<<<
+	}
+
+	#>>>
+	method normalize_path fqpath { #<<<
 		set fqpath
 	}
 
 	#>>>
 }
 
-
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
