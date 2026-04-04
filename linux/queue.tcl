@@ -14,9 +14,9 @@ oo::class create ::inotify::queue {
 		set queue_handle	[inotify::create_queue]
 
 		chan configure $queue_handle \
-				-blocking		0 \
-				-buffering		none \
-				-translation	binary
+			-blocking		0 \
+			-buffering		none \
+			-translation	binary
 
 		coroutine consumer my _readable
 		chan event $queue_handle readable [namespace code consumer]
@@ -61,8 +61,8 @@ oo::class create ::inotify::queue {
 		}
 		set wd	[dict get $path_map $path]
 		inotify::rm_watch $queue_handle $wd
-		dict unset path_map $path
-		dict unset wd_map $wd
+		dict unset path_map	$path
+		dict unset wd_map	$wd
 	}
 
 	#>>>
@@ -119,4 +119,4 @@ oo::class create ::inotify::queue {
 	#>>>
 }
 
-# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

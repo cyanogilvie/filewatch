@@ -1,6 +1,5 @@
-oo::class create ::inotify::watchdir {
+oo::class create @NS@::watchdir_base {
 	variable {*}{
-		queue
 		files
 		maxsize
 	}
@@ -11,49 +10,16 @@ oo::class create ::inotify::watchdir {
 			set maxsize	1048576
 		}
 		set files	{}
-		set queue	[inotify::queue new [namespace code {my _fs_event}]]
 		my _add_watches $dir
 	}
 
 	#>>>
-	destructor { #<<<
-		if {[info exists queue] && [info object isa object $queue]} {
-			$queue destroy
-			unset queue
-		}
-		if {[self next] ne ""} next
-	}
 
-	#>>>
-	method _fs_event ev { #<<<
-		set fqpath	[file join [dict get $ev path] [dict get $ev name]]
-		set mask	[dict get $ev mask]
-		if {"IN_ISDIR" in $mask} {
-			if {"IN_CREATE" in $mask || "IN_MOVED_TO" in $mask} {
-				my _add_watches $fqpath
-			} elseif {"IN_MOVE_SELF" in $mask} {
-				my _deep_remove $fqpath
-			}
-		} else {
-			if {"IN_MOVED_TO" in $mask || "IN_CLOSE_WRITE" in $mask} {
-				my _new_file $fqpath
-			} elseif {"IN_DELETE" in $mask || "IN_MOVED_FROM" in $mask} {
-				my _remove_file $fqpath
-			}
-		}
-	}
+	# Override these methods in a backend provider to integrate with the platform's file watching API
+	method _start_watching dir {}	;# Register with the kernel driver to start receiving events for $dir
 
-	#>>>
 	method _add_watches dir { #<<<
-		$queue add_watch $dir {
-			IN_CLOSE_WRITE
-			IN_CREATE
-			IN_DELETE
-			IN_DELETE_SELF
-			IN_MOVE_SELF
-			IN_MOVED_FROM
-			IN_MOVED_TO
-		}
+		my _start_watching $dir
 		foreach subdir [glob -nocomplain -type d [file join $dir *]] {
 			my _add_watches $subdir
 		}
@@ -85,9 +51,9 @@ oo::class create ::inotify::watchdir {
 	}
 
 	#>>>
-	method _deep_remove fqpath { #<<<
+	method _deep_remove fqpath { # The dir $fqpath was removed: synthesize remove_file events for each file in its subtree <<<
 		foreach key [dict keys $files [file join $fqpath *]] {
-			my _remove_file $fqpath
+			my _remove_file $key
 		}
 	}
 
@@ -109,4 +75,4 @@ oo::class create ::inotify::watchdir {
 	#>>>
 }
 
-# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

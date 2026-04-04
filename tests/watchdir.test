@@ -1,4 +1,7 @@
 # vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> shiftwidth=4 ts=4
+#
+# Cross-platform tests for filewatch::watchdir
+# These work on any backend (inotify, fsevents, dirwatch)
 
 if {[lsearch [namespace children] ::tcltest] == -1} {
 	package require tcltest 2.2.5
@@ -11,7 +14,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 test watchdir-1.1 {Create and destroy watchdir} -setup { #<<<
 	set dir	[makeDirectory watchdir_test]
 } -body {
-	set wd	[inotify::watchdir new $dir]
+	set wd	[filewatch::watchdir new $dir]
 	set is_obj	[info object isa object $wd]
 	$wd destroy
 	set is_gone	[expr {![info object isa object $wd]}]
@@ -24,7 +27,7 @@ test watchdir-1.2 {Watchdir detects new file via subclass} -setup { #<<<
 	set dir	[makeDirectory watchdir_new]
 
 	oo::class create test_wd {
-		superclass inotify::watchdir
+		superclass filewatch::watchdir
 		variable seen
 		constructor dir {
 			set seen {}
@@ -60,7 +63,7 @@ test watchdir-1.3 {Watchdir detects file removal via subclass} -setup { #<<<
 	set dir	[makeDirectory watchdir_rm]
 
 	oo::class create test_wd_rm {
-		superclass inotify::watchdir
+		superclass filewatch::watchdir
 		variable removed
 		constructor dir {
 			set removed {}
@@ -96,7 +99,7 @@ test watchdir-1.4 {Watchdir picks up existing files} -setup { #<<<
 	close [open [file join $dir existing.txt] w]
 
 	oo::class create test_wd_exist {
-		superclass inotify::watchdir
+		superclass filewatch::watchdir
 		variable seen
 		constructor dir {
 			set seen {}
@@ -124,7 +127,7 @@ test watchdir-1.5 {Watchdir watches subdirectories} -setup { #<<<
 	file mkdir [file join $dir sub]
 
 	oo::class create test_wd_sub {
-		superclass inotify::watchdir
+		superclass filewatch::watchdir
 		variable seen
 		constructor dir {
 			set seen {}
@@ -160,7 +163,7 @@ test watchdir-1.6 {Watchdir respects maxsize} -setup { #<<<
 	set dir	[makeDirectory watchdir_maxsize]
 
 	oo::class create test_wd_maxsize {
-		superclass inotify::watchdir
+		superclass filewatch::watchdir
 		variable seen maxsize
 		constructor dir {
 			set maxsize	10
@@ -199,6 +202,20 @@ test watchdir-1.6 {Watchdir respects maxsize} -setup { #<<<
 	file delete -force [file join $dir big.txt] [file join $dir small.txt]
 	unset -nocomplain wd dir fp seen got_big got_small ::wd_max_done
 } -result {0 1}
+#>>>
+
+# inotify backwards-compat alias
+::tcltest::testConstraint inotify [expr {[info object isa class ::inotify::watchdir]}]
+
+test watchdir-2.1 {inotify::watchdir alias works} -constraints inotify -setup { #<<<
+	set dir	[makeDirectory watchdir_compat]
+} -body {
+	set wd	[inotify::watchdir new $dir]
+	info object isa object $wd
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	unset -nocomplain wd dir
+} -result 1
 #>>>
 
 ::tcltest::cleanupTests

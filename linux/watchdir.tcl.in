@@ -1,0 +1,49 @@
+oo::class create @NS@::watchdir {
+	superclass @NS@::watchdir_base
+
+	constructor dir { #<<<
+		inotify::queue create q [namespace code {my _fs_event}]
+		next $dir
+	}
+
+	#>>>
+	method _start_watching dir { #<<<
+		q add_watch $dir {
+			IN_CLOSE_WRITE
+			IN_CREATE
+			IN_DELETE
+			IN_DELETE_SELF
+			IN_MOVE_SELF
+			IN_MOVED_FROM
+			IN_MOVED_TO
+		}
+	}
+
+	#>>>
+	method _fs_event ev { #<<<
+		set fqpath	[file join [dict get $ev path] [dict get $ev name]]
+		set mask	[dict get $ev mask]
+		if {"IN_ISDIR" in $mask} {
+			if {"IN_CREATE" in $mask || "IN_MOVED_TO" in $mask} {
+				my _add_watches $fqpath
+			} elseif {"IN_MOVE_SELF" in $mask} {
+				my _deep_remove $fqpath
+			}
+		} else {
+			if {"IN_MOVED_TO" in $mask || "IN_CLOSE_WRITE" in $mask} {
+				my _new_file $fqpath
+			} elseif {"IN_DELETE" in $mask || "IN_MOVED_FROM" in $mask} {
+				my _remove_file $fqpath
+			}
+		}
+	}
+
+	#>>>
+}
+
+# Provide @NS@::watchdir under the old name ::inotify::watchdir for backwards compatibility on Linux
+oo::class create ::inotify::watchdir {
+	superclass @NS@::watchdir
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

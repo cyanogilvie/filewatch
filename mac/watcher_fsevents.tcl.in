@@ -1,0 +1,48 @@
+oo::class create @NS_DRIVER@::watcher {
+	variable {*}{
+		cb
+		stream
+	}
+
+	constructor {callback args} { # args: ?-latency N? ?-flags flaglist? path ?path ...? <<<
+		if {[self next] ne ""} next
+
+		set cb		$callback
+		set stream	[::filewatch::fsevents::create_stream {*}$args]
+
+		chan configure $stream \
+			-blocking		0 \
+			-buffering		none \
+			-translation	binary
+
+		coroutine consumer my _readable
+		chan event $stream readable [namespace code consumer]
+	}
+
+	#>>>
+	destructor { #<<<
+		if {[self next] ne ""} next
+
+		close $stream
+	}
+
+	#>>>
+
+	method _readable {} { #<<<
+		set buf	{}
+		yield
+
+		while 1 {
+			append buf [chan read $stream]
+			if {[chan eof $stream]} break
+			::filewatch::fsevents::dispatch_events buf $cb
+			yield
+		}
+
+		my destroy
+	}
+
+	#>>>
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

@@ -1,0 +1,10 @@
+namespace eval @NS@ {
+	if {[llength [info commands @NS@::log]] == 0} {
+		# Default log procedure, can be overridden by the user
+		proc log {lvl msg} {
+			puts $msg
+		}
+	}
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

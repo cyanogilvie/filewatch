@@ -1,0 +1,41 @@
+oo::class create @NS@::watchdir {
+	superclass @NS@::watchdir_base
+
+	constructor dir { #<<<
+		# FSEvents watches recursively natively, but we still need _add_watches
+		# for the initial scan of existing files.  _start_watching is a no-op
+		# since the watcher covers the whole tree.
+		@NS_DRIVER@::watcher create watcher [namespace code {my _fs_event}] $dir
+		next $dir
+	}
+
+	#>>>
+	method _start_watching dir { #<<<
+		# No-op: FSEvents watches the entire tree from the root path given
+		# to the watcher in the constructor
+	}
+
+	#>>>
+	method _fs_event ev { #<<<
+		set path	[dict get $ev path]
+		set flags	[dict get $ev flags]
+
+		if {"ISDIR" in $flags} {
+			if {"CREATED" in $flags || "RENAMED" in $flags} {
+				my _add_watches $path
+			} elseif {"REMOVED" in $flags} {
+				my _deep_remove $path
+			}
+		} else {
+			if {"CREATED" in $flags || "MODIFIED" in $flags || "RENAMED" in $flags} {
+				my _new_file $path
+			} elseif {"REMOVED" in $flags} {
+				my _remove_file $path
+			}
+		}
+	}
+
+	#>>>
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

@@ -1,0 +1,2 @@
+option('driver', type: 'combo', choices: ['native', 'linux', 'xnu', 'nt'], value: 'native',
+  description: 'Linux hosts only: override the driver to test.  Uses a simulated platform API implemented on inotify')

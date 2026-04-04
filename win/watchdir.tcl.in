@@ -1,0 +1,44 @@
+oo::class create @NS@::watchdir {
+	superclass @NS@::watchdir_base
+
+	variable root_dir
+
+	constructor dir { #<<<
+		set root_dir $dir
+		@NS_DRIVER@::watcher create watcher [namespace code {my _fs_event}] $dir
+		next $dir
+	}
+
+	#>>>
+	method _start_watching dir { #<<<
+		# No-op: ReadDirectoryChangesW watches the entire tree from the
+		# root path given to the watcher in the constructor
+	}
+
+	#>>>
+	method _fs_event ev { #<<<
+		set relname	[dict get $ev name]
+		set action	[dict get $ev action]
+		set fqpath	[file join $root_dir $relname]
+
+		switch -exact -- $action {
+			ADDED - RENAMED_NEW {
+				if {[file isdirectory $fqpath]} {
+					my _add_watches $fqpath
+				} else {
+					my _new_file $fqpath
+				}
+			}
+			REMOVED - RENAMED_OLD {
+				my _remove_file $fqpath
+			}
+			MODIFIED {
+				my _new_file $fqpath
+			}
+		}
+	}
+
+	#>>>
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

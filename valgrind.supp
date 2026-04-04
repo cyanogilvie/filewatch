@@ -1,0 +1,40 @@
+# Valgrind suppressions for filewatch
+#
+# Usage: meson test -C builddir --wrapper="valgrind --suppressions=$(pwd)/valgrind.supp --leak-check=full --trace-children=yes"
+
+# glibc TLS / DTV allocations for threads — these are freed by glibc
+# when the thread is joined, but valgrind can't track through the
+# dynamic thread vector.
+{
+   glibc-tls-dtv-entry
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:malloc
+   fun:allocate_dtv_entry
+   ...
+}
+{
+   glibc-tls-allocate-dtv
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create*
+   ...
+}
+{
+   glibc-tls-get-addr
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:malloc
+   fun:allocate_dtv_entry
+   fun:allocate_and_init
+   fun:tls_get_addr_tail
+   fun:__tls_get_addr
+   ...
+}

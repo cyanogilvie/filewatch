@@ -1,0 +1,47 @@
+oo::class create @NS_DRIVER@::watcher {
+	variable {*}{
+		cb
+		watch_chan
+	}
+
+	constructor {callback args} { # args: ?-recursive bool? ?-filter filterlist? ?--? path <<<
+		if {[self next] ne ""} next
+
+		set cb			$callback
+		set watch_chan	[@NS_DRIVER@::create_watch {*}$args]
+
+		chan configure $watch_chan \
+			-blocking		0 \
+			-buffering		none \
+			-translation	binary
+
+		coroutine consumer my _readable
+		chan event $watch_chan readable [namespace code consumer]
+	}
+
+	#>>>
+	destructor { #<<<
+		if {[self next] ne ""} next
+		close $watch_chan
+	}
+
+	#>>>
+
+	method _readable {} { #<<<
+		set buf	{}
+		yield
+
+		while 1 {
+			append buf [chan read $watch_chan]
+			if {[chan eof $watch_chan]} break
+			@NS_DRIVER@::dispatch_events buf $cb
+			yield
+		}
+
+		my destroy
+	}
+
+	#>>>
+}
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4 noexpandtab

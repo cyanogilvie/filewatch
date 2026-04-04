@@ -1,10 +1,10 @@
 #
 # Tcl package index file
 #
-package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ [list apply {
-	dir {
-		load [file join $dir @PKG_LIB_FILE@] [string totitle @PACKAGE_NAME@]
-		source [file join $dir queue.tcl]
-		source [file join $dir watchdir.tcl]
-	}
-} $dir]
+package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ [list source [file join $dir filewatch.tcl]]
+
+if {$::tcl_platform(os) eq "Linux"} {
+	# If running on linux, provide this package under the old name "inotify" for backwards compatibility
+	# On linux, package "inotify" is provided by filewatch in addition to "filewatch"
+	package ifneeded inotify @PACKAGE_VERSION@ {package require -exact @PACKAGE_NAME@ @PACKAGE_VERSION@}
+}

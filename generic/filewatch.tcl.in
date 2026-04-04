@@ -1,0 +1,4 @@
+# This is split out from the "package ifneeded" action inline in the pkgIndex.tcl to
+# give the [info script] that Filewatch_Init() does the `source` context from which
+# to find the package dir
+load [file join [file dirname [info script]] @PKG_LIB_FILE@] [string totitle @PACKAGE_NAME@]

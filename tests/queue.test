@@ -10,7 +10,10 @@ set tmpdir [makeDirectory queue_tmp]
 
 ::tcltest::loadTestedCommands
 
-test queue-1.1 {Create and destroy queue object} -body { #<<<
+# These tests exercise inotify::queue which is inotify-specific
+::tcltest::testConstraint inotify [expr {[namespace which -command ::inotify::create_queue] ne ""}]
+
+test queue-1.1 {Create and destroy queue object} -constraints inotify -body { #<<<
 	set q	[inotify::queue new [list apply {ev {}}]]
 	info object isa object $q
 } -cleanup {
@@ -18,7 +21,7 @@ test queue-1.1 {Create and destroy queue object} -body { #<<<
 	unset -nocomplain q
 } -result 1
 #>>>
-test queue-1.2 {Queue delivers events via callback} -setup { #<<<
+test queue-1.2 {Queue delivers events via callback} -constraints inotify -setup { #<<<
 	set ::received {}
 	set q	[inotify::queue new [list apply {ev {
 		lappend ::received [dict get $ev mask]
@@ -40,7 +43,7 @@ test queue-1.2 {Queue delivers events via callback} -setup { #<<<
 	unset -nocomplain q ::received ::done got_create got_delete
 } -result {1 1}
 #>>>
-test queue-1.3 {Queue add_watch and rm_watch by path} -setup { #<<<
+test queue-1.3 {Queue add_watch and rm_watch by path} -constraints inotify -setup { #<<<
 	set q	[inotify::queue new [list apply {ev {
 		lappend ::received [dict get $ev mask]
 	}}]]
@@ -62,7 +65,7 @@ test queue-1.3 {Queue add_watch and rm_watch by path} -setup { #<<<
 	unset -nocomplain q ::received ::done
 } -result 0
 #>>>
-test queue-1.4 {Queue destroy cleans up channel} -body { #<<<
+test queue-1.4 {Queue destroy cleans up channel} -constraints inotify -body { #<<<
 	set q	[inotify::queue new [list apply {ev {}}]]
 	set before	[llength [chan names]]
 	$q destroy
@@ -72,7 +75,7 @@ test queue-1.4 {Queue destroy cleans up channel} -body { #<<<
 	unset -nocomplain q before after
 } -result 1
 #>>>
-test queue-1.5 {Queue callback receives path in event} -setup { #<<<
+test queue-1.5 {Queue callback receives path in event} -constraints inotify -setup { #<<<
 	set ::ev_path {}
 	set q	[inotify::queue new [list apply {ev {
 		set ::ev_path [dict get $ev path]
@@ -91,7 +94,7 @@ test queue-1.5 {Queue callback receives path in event} -setup { #<<<
 	unset -nocomplain q ::ev_path ::done
 } -result $tmpdir
 #>>>
-test queue-1.6 {Queue callback receives filename in event} -setup { #<<<
+test queue-1.6 {Queue callback receives filename in event} -constraints inotify -setup { #<<<
 	set ::ev_name {}
 	set q	[inotify::queue new [list apply {ev {
 		set ::ev_name [dict get $ev name]
