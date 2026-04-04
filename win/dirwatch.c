@@ -440,7 +440,7 @@ static OBJCMD(cmd_dispatch_events) //<<<
 				Tcl_GetReturnOptions(interp, cb_code),
 			}));
 			Tcl_SetObjErrorCode(interp, tmp);
-			Tcl_AddErrorInfo(interp, "\n    (while processing filewatch dirwatch callback)");
+			Tcl_AddErrorInfo(interp, "\n    (while processing " PACKAGE_NAME " dirwatch callback)");
 			Tcl_BackgroundException(interp, cb_code);
 			Tcl_ResetResult(interp);
 		}

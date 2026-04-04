@@ -74,7 +74,7 @@ DLLEXPORT int Filewatch_Init(Tcl_Interp* interp) //<<<
 	TEST_OK_LABEL(finally, code, Dirwatch_Init(interp));
 #endif
 
-	TEST_OK_LABEL(finally, code, Tcl_PkgProvide(interp, "filewatch", PACKAGE_VERSION));
+	TEST_OK_LABEL(finally, code, Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION));
 
 finally:
 	replace_tclobj(&get_pkgdir,	NULL);

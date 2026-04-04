@@ -8,7 +8,7 @@ oo::class create @NS_DRIVER@::watcher {
 		if {[self next] ne ""} next
 
 		set cb		$callback
-		set stream	[::filewatch::fsevents::create_stream {*}$args]
+		set stream	[@NS_DRIVER@::create_stream {*}$args]
 
 		chan configure $stream \
 			-blocking		0 \
@@ -35,7 +35,7 @@ oo::class create @NS_DRIVER@::watcher {
 		while 1 {
 			append buf [chan read $stream]
 			if {[chan eof $stream]} break
-			::filewatch::fsevents::dispatch_events buf $cb
+			@NS_DRIVER@::dispatch_events buf $cb
 			yield
 		}
 

@@ -5,6 +5,6 @@ package ifneeded @PACKAGE_NAME@ @PACKAGE_VERSION@ [list source [file join $dir f
 
 if {$::tcl_platform(os) eq "Linux"} {
 	# If running on linux, provide this package under the old name "inotify" for backwards compatibility
-	# On linux, package "inotify" is provided by filewatch in addition to "filewatch"
+	# On linux, package "inotify" is provided by @PACKAGE_NAME@ in addition to "@PACKAGE_NAME@"
 	package ifneeded inotify @PACKAGE_VERSION@ {package require -exact @PACKAGE_NAME@ @PACKAGE_VERSION@}
 }

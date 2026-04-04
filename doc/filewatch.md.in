@@ -1,0 +1,363 @@
+---
+title: @PACKAGE_NAME@
+section: "n"
+header: Tcl-extensions
+adjusting: l
+---
+
+# NAME
+
+@PACKAGE_NAME@ — Cross-platform filesystem event monitoring for Tcl
+
+# SYNOPSIS
+
+**package require @PACKAGE_NAME@**
+
+**@PACKAGE_NAME@::watchdir create** *objectName* *dir*\
+**@PACKAGE_NAME@::watchdir new** *dir*\
+*objectName* **destroy**
+
+Linux also provides the low-level inotify interface:
+
+**package require inotify**
+
+**inotify::queue create** *objectName* *callback*\
+**inotify::queue new** *callback*\
+*objectName* **add_watch** *path* ?*mask*?\
+*objectName* **rm_watch** *path*\
+*objectName* **destroy**
+
+# DESCRIPTION
+
+The **@PACKAGE_NAME@** package monitors files and directories for
+changes.  It provides a cross-platform **@PACKAGE_NAME@::watchdir** class
+that works on Linux, macOS, and Windows, backed by each platform's
+native filesystem notification API:
+
+| Platform  | Backend                   |
+|-----------|---------------------------|
+| Linux     | inotify(7)                |
+| macOS     | FSEvents (CoreServices)   |
+| Windows   | ReadDirectoryChangesW     |
+
+On Linux, the package is also available as **package require inotify**
+for backwards compatibility, and the low-level **inotify::queue** class
+is available for direct inotify access.
+
+# @PACKAGE_NAME@::watchdir CLASS
+
+The **@PACKAGE_NAME@::watchdir** class recursively watches a directory tree
+for file creation and deletion.  It is designed to be subclassed —
+override the **new_file** and **remove_file** methods to respond to
+events.
+
+When constructed, it scans the directory tree for existing files
+(calling **new_file** for each) and installs watches on every
+subdirectory.  New subdirectories created after construction are
+automatically watched.
+
+Files larger than *maxsize* bytes (default 1048576, i.e. 1 MiB) are
+ignored.  To change the limit, set the *maxsize* variable before
+calling **next** in a subclass constructor.
+
+**@PACKAGE_NAME@::watchdir create** *objectName* *dir*
+
+:   Create a watchdir object named *objectName* watching *dir*.
+
+**@PACKAGE_NAME@::watchdir new** *dir*
+
+:   Create a watchdir object with an auto-generated name watching
+    *dir*.
+
+*objectName* **destroy**
+
+:   Stop watching and clean up.
+
+## Methods for subclass override
+
+The following methods are called by the watchdir when file events
+occur.  The default implementations are no-ops.  Override them in a
+subclass to take action.
+
+*objectName* **new_file** *normpath*
+
+:   Called when a file is created or written.  *normpath* is the full
+    path after **normalize_path** processing.
+
+*objectName* **remove_file** *normpath*
+
+:   Called when a file is deleted or moved away.  *normpath* is the
+    full path after **normalize_path** processing.
+
+*objectName* **normalize_path** *fqpath*
+
+:   Called to transform a fully qualified path before it is passed to
+    **new_file** or **remove_file**.  The default implementation
+    returns *fqpath* unchanged.  Override to apply project-specific
+    path normalization.
+
+# EXAMPLE
+
+```tcl
+package require @PACKAGE_NAME@
+
+oo::class create my_watcher {
+    superclass @PACKAGE_NAME@::watchdir
+
+    method new_file normpath {
+        puts "New file: $normpath"
+    }
+
+    method remove_file normpath {
+        puts "Removed: $normpath"
+    }
+}
+
+my_watcher create watcher /path/to/watched/dir
+vwait ::forever
+```
+
+# LINUX (INOTIFY) BACKEND
+
+On Linux, the low-level **inotify::queue** class is available for
+direct access to the inotify API.  This is useful when you need
+fine-grained control over which events to watch, or when monitoring
+individual files rather than directory trees.
+
+## inotify::queue CLASS
+
+The **inotify::queue** class wraps a raw inotify file descriptor in a
+TclOO object that delivers events asynchronously through a callback.
+
+**inotify::queue create** *objectName* *callback*
+
+:   Create a queue object named *objectName*.
+
+**inotify::queue new** *callback*
+
+:   Create a queue object with an auto-generated name.
+
+Both forms return the name of the queue object created.  The
+*callback* will be invoked with each event that arrives on the queue,
+with the event details appended as a dictionary argument:
+
+> *callback event-details*
+
+The dictionary *event-details* contains the following keys:
+
+| Key        | Description                                             |
+|------------|---------------------------------------------------------|
+| **path**   | The path of the file/directory that the watch was registered on. |
+| **mask**   | A list of the flags that identify what the event is, from the tables below. |
+| **cookie** | Related events (such as a rename) share a unique cookie value. |
+| **name**   | When the watch is on a directory and an event occurs on one of its children, this field contains the relative name of the child. |
+
+*objectName* **add_watch** *path* ?*mask*?
+
+:   Add *path* to the list of paths watched in this queue, or update
+    the flags of an existing watch if this path was already watched.
+    If *mask* is not specified, it defaults to **IN_ALL_EVENTS**,
+    otherwise it must be a list containing flags from the event and
+    add_watch flag tables below.
+
+*objectName* **rm_watch** *path*
+
+:   Remove a path from the list of watched paths.  If *path* is not
+    watched then an error is raised.
+
+*objectName* **destroy**
+
+:   Delete the queue.  All watches feeding this queue are removed and
+    the underlying channel is closed.
+
+## inotify::queue example
+
+```tcl
+package require inotify
+
+proc something_happened {event_details} {
+    dict for {k v} $event_details {
+        puts [format "  %-10s %s" $k $v]
+    }
+}
+inotify::queue create queue something_happened
+queue add_watch /tmp
+vwait ::forever
+```
+... another process does a "touch /tmp/foo" ...
+
+```
+Event happened:
+  path       /tmp
+  mask       IN_CREATE
+  cookie     0
+  name       foo
+Event happened:
+  path       /tmp
+  mask       IN_OPEN
+  cookie     0
+  name       foo
+Event happened:
+  path       /tmp
+  mask       IN_ATTRIB
+  cookie     0
+  name       foo
+Event happened:
+  path       /tmp
+  mask       IN_CLOSE_WRITE
+  cookie     0
+  name       foo
+```
+
+## Watching files vs directories
+
+When a watch is placed on an ordinary file, the events it generates
+relate directly to the watched file itself.  If, however, the path
+being watched is a directory, then in addition to receiving events
+about the directory itself, it also generates events for its direct
+children (but not recursively for the whole subtree under the
+directory).  In this case the event generated contains a **name** field
+which identifies the relative name of the child under the watched
+directory that generated the event.
+
+## Masks
+
+Masks select which event types to receive.  The **Scope** column
+indicates whether the flag applies to the watched path itself (**s**),
+to children of the watched path (**c**), or both.
+
+| Flag                | Scope | Description                                    |
+|---------------------|-------|------------------------------------------------|
+| **IN_ACCESS**       | s c   | File was accessed (read).                      |
+| **IN_ATTRIB**       | s c   | Metadata changed (permissions, timestamps, extended attributes, etc). |
+| **IN_CLOSE_WRITE**  | s c   | File opened for writing was closed.            |
+| **IN_CLOSE_NOWRITE**| s c   | File not opened for writing was closed.        |
+| **IN_CREATE**       |   c   | File/directory created in watched directory.   |
+| **IN_DELETE**        |   c   | File/directory deleted from watched directory. |
+| **IN_DELETE_SELF**  | s     | Watched file/directory was itself deleted.     |
+| **IN_MODIFY**       | s c   | File was modified.                             |
+| **IN_MOVE_SELF**    | s     | Watched file/directory was itself moved.       |
+| **IN_MOVED_FROM**   |   c   | File moved out of watched directory.           |
+| **IN_MOVED_TO**     |   c   | File moved into watched directory.             |
+| **IN_OPEN**         | s c   | File was opened.                               |
+
+Convenience flags: **IN_ALL_EVENTS** (all the above), **IN_MOVE**
+(**IN_MOVED_FROM** | **IN_MOVED_TO**), **IN_CLOSE** (**IN_CLOSE_WRITE**
+| **IN_CLOSE_NOWRITE**).
+
+Additional flags valid only in the *mask* parameter to **add_watch**:
+
+| Flag               | Description                                         |
+|--------------------|-----------------------------------------------------|
+| **IN_DONT_FOLLOW** | If the watched path is a symbolic link, watch the link itself rather than the path it points to. |
+| **IN_MASK_ADD**    | If this path is already watched, add these flags to those already set, otherwise replace what was set before. |
+| **IN_ONESHOT**     | Watch this path for one event, then remove it from the watch list. |
+| **IN_ONLYDIR**     | Only watch this path if it is a directory.          |
+
+Additional flags that may appear in event masks:
+
+| Flag               | Description                                         |
+|--------------------|-----------------------------------------------------|
+| **IN_IGNORED**     | The watch was removed, either explicitly with rm_watch, or because the watched path was deleted, or the filesystem was unmounted. |
+| **IN_ISDIR**       | The subject of this event is a directory.           |
+| **IN_Q_OVERFLOW**  | Event queue overflowed.  See `/proc/sys/fs/inotify/max_queued_events`. |
+| **IN_UNMOUNT**     | The filesystem containing the watched path was unmounted. |
+
+## Kernel limits
+
+**/proc/sys/fs/inotify/max_queued_events**
+
+:   Events queued before **IN_Q_OVERFLOW** is generated.
+
+**/proc/sys/fs/inotify/max_user_instances**
+
+:   Maximum queues per user.
+
+**/proc/sys/fs/inotify/max_user_watches**
+
+:   Maximum watches per queue.
+
+# PLATFORM SUPPORT
+
+| Platform | Status | Backend | Notes |
+|----------|--------|---------|-------|
+| **Linux** | Tested | inotify(7) | Full inotify::queue + @PACKAGE_NAME@::watchdir |
+| **macOS** | Untested | FSEvents | @PACKAGE_NAME@::watchdir only |
+| **Windows** | Untested | ReadDirectoryChangesW | @PACKAGE_NAME@::watchdir only |
+
+The macOS and Windows backends have been developed and tested on Linux
+using shim libraries that emulate each platform's native API using
+inotify.  While this exercises the driver code paths end-to-end, it
+cannot replicate the exact semantics of the real platform APIs.
+
+**Testers with access to macOS or Windows are needed** to validate the
+FSEvents and ReadDirectoryChangesW backends against the real platform
+APIs.  Please report any issues at the project's issue tracker.
+
+On all platforms, **@PACKAGE_NAME@::watchdir** provides the same interface.
+On macOS and Windows, recursive watching is handled natively by the
+kernel; on Linux, the watchdir manages per-directory inotify watches
+internally.
+
+# BUILDING
+
+This package requires Tcl 8.6 or 9.0.  The build system is `meson`,
+which will find Tcl using its pkg-config file.  Use the
+`PKG_CONFIG_PATH` environment variable to point meson to it if Tcl is
+installed in a nonstandard location.
+
+## From a Release Tarball
+
+Download and extract [the release](https://github.com/cyanogilvie/@PACKAGE_NAME@/releases), then:
+
+```sh
+tar xf @PACKAGE_NAME@-v@PACKAGE_VERSION@.tar.gz
+cd @PACKAGE_NAME@-v@PACKAGE_VERSION@
+meson setup builddir --buildtype=release
+meson compile -C builddir
+meson install -C builddir
+```
+
+## From the Git Sources
+
+Fetch [the code](https://github.com/cyanogilvie/@PACKAGE_NAME@) and submodules
+recursively, then build:
+
+```sh
+git clone --recurse-submodules https://github.com/cyanogilvie/@PACKAGE_NAME@
+cd @PACKAGE_NAME@
+meson setup builddir --buildtype=release
+meson compile -C builddir
+meson install -C builddir
+```
+
+## Testing
+
+Run the test suite after building:
+
+```sh
+meson test -C builddir
+```
+
+To test a non-native backend on Linux using the inotify shim:
+
+```sh
+meson setup builddir_xnu -Ddriver=xnu
+meson test -C builddir_xnu
+
+meson setup builddir_nt -Ddriver=nt
+meson test -C builddir_nt
+```
+
+# LICENSE
+
+This package is Copyright 2007-2026 Cyan Ogilvie, and is made available
+under the same license terms as the Tcl Core.
+
+# SEE ALSO
+
+inotify(7), fsevents(3), ReadDirectoryChangesW
+
+# KEYWORDS
+
+file, notification, event, inotify, fsevents, @PACKAGE_NAME@, watchdir, tcl

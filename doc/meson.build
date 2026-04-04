@@ -2,7 +2,7 @@ pandoc = find_program('pandoc', native: true, required: false)
 
 if pandoc.found()
   doc_md = configure_file(
-    input:          'inotify.md.in',
+    input:          'filewatch.md.in',
     output:         '@BASENAME@',
     configuration:  teaconf,
   )
