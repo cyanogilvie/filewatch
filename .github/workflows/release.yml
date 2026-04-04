@@ -13,7 +13,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y ninja-build pandoc
+        sudo apt-get install -y ninja-build pandoc mingw-w64 wine64 zip
         pip3 install --user meson
 
     - uses: actions/checkout@v4
@@ -26,29 +26,74 @@ jobs:
         meson compile -C build
         meson test -C build --print-errorlogs
 
+    - name: Cross-compile for Windows
+      run: |
+        cat > /tmp/cross-mingw64.ini <<'EOF'
+        [binaries]
+        c = 'x86_64-w64-mingw32-gcc'
+        cpp = 'x86_64-w64-mingw32-g++'
+        ar = 'x86_64-w64-mingw32-ar'
+        strip = 'x86_64-w64-mingw32-strip'
+        windres = 'x86_64-w64-mingw32-windres'
+        exe_wrapper = 'wine'
+        pkg-config = 'pkg-config'
+
+        [built-in options]
+        default_library = 'shared'
+
+        [properties]
+        sys_root = '/usr/x86_64-w64-mingw32'
+        pkg_config_libdir = '/nonexistent'
+
+        [host_machine]
+        system = 'windows'
+        kernel = 'nt'
+        cpu_family = 'x86_64'
+        cpu = 'x86_64'
+        endian = 'little'
+        EOF
+        meson setup buildwin --cross-file /tmp/cross-mingw64.ini
+        meson compile -C buildwin
+
+    - name: Test Windows build under wine
+      run: meson test -C buildwin --print-errorlogs
+
     - name: Extract version
       id: version
       run: |
         ver=$(meson introspect build --projectinfo | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])')
         echo "version=${ver}" >> "$GITHUB_OUTPUT"
-        echo "project=inotify-${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+        echo "project=filewatch-${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
     - name: Create source tarball
       run: |
         project="${{ steps.version.outputs.project }}"
-        # Generate README.md from docs
         meson compile -C build readme
         cp build/doc/README.md README.md
-        # Copy workspace dereferencing symlinks, then strip build artifacts
         cp -aL . "/tmp/${project}"
         find "/tmp/${project}" -name '.git' -exec rm -rf {} +
         rm -rf "/tmp/${project}/.github"
-        rm -rf "/tmp/${project}/build"
+        rm -rf "/tmp/${project}/build" "/tmp/${project}/buildwin"
         rm -rf "/tmp/${project}/subprojects/packagecache"
         rm -rf "/tmp/${project}/subprojects/tcl"
         rm -rf "/tmp/${project}/subprojects/libtommath-"*
         rm -rf "/tmp/${project}/subprojects/.wraplock"
         tar czf "/tmp/${project}.tar.gz" -C /tmp "${project}"
+        cd /tmp && zip -rq "${project}-source.zip" "${project}"
+
+    - name: Package Windows binaries
+      run: |
+        pkg_dir="filewatch-${{ steps.version.outputs.version }}"
+        mkdir -p "/tmp/win/${pkg_dir}"
+        cp buildwin/teabase/libfilewatch.dll "/tmp/win/${pkg_dir}/"
+        cp buildwin/teabase/pkgIndex.tcl "/tmp/win/${pkg_dir}/"
+        # Copy all configured Tcl scripts from the build dir
+        cp buildwin/teabase/*.tcl "/tmp/win/${pkg_dir}/" 2>/dev/null || true
+        if [ -f buildwin/doc/filewatch.html ]; then
+          cp buildwin/doc/filewatch.html "/tmp/win/${pkg_dir}/"
+        fi
+        cd /tmp/win
+        zip -r "/tmp/${{ steps.version.outputs.project }}-windows-x86_64.zip" "${pkg_dir}"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
@@ -56,6 +101,8 @@ jobs:
         name: release-artifacts
         path: |
           /tmp/${{ steps.version.outputs.project }}.tar.gz
+          /tmp/${{ steps.version.outputs.project }}-source.zip
+          /tmp/${{ steps.version.outputs.project }}-windows-x86_64.zip
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
@@ -65,3 +112,5 @@ jobs:
         generate_release_notes: true
         files: |
           /tmp/${{ steps.version.outputs.project }}.tar.gz
+          /tmp/${{ steps.version.outputs.project }}-source.zip
+          /tmp/${{ steps.version.outputs.project }}-windows-x86_64.zip

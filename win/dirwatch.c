@@ -7,8 +7,6 @@
 #endif
 
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
 
 #define LITSTRS \
 	X( L_EV_TEMPLATE,	"name {} action {}"	) \
@@ -104,7 +102,7 @@ struct wire_event {
 
 struct watch_state {
 	HANDLE		pipe_write;
-	int			ready_pipe[2];
+	HANDLE		ready_event;
 	HANDLE		dir_handle;
 	HANDLE		stop_event;
 	HANDLE		thread_handle;
@@ -144,10 +142,7 @@ static DWORD WINAPI dirwatch_thread(LPVOID param) //<<<
 		// Signal main thread after first ReadDirectoryChangesW sets up watches
 		if (first) {
 			first = 0;
-			char c = 'r';
-			(void)write(ws->ready_pipe[1], &c, 1);
-			close(ws->ready_pipe[1]);
-			ws->ready_pipe[1] = -1;
+			SetEvent(ws->ready_event);
 		}
 
 		DWORD wait = WaitForMultipleObjects(2, events, FALSE, INFINITE);
@@ -313,7 +308,6 @@ static OBJCMD(cmd_create_watch) //<<<
 	ws = (struct watch_state*)ckalloc(sizeof(*ws));
 	*ws = (struct watch_state){
 		.pipe_write		= pipe_write,
-		.ready_pipe		= {-1, -1},
 		.dir_handle		= dir_handle,
 		.recursive		= recursive,
 		.filter			= filter,
@@ -324,14 +318,8 @@ static OBJCMD(cmd_create_watch) //<<<
 	ws->stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
 	if (!ws->stop_event) THROW_POSIX_LABEL(finally, code, "CreateEvent");
 
-	// Ready pipe for thread startup synchronization
-#if HAVE_PIPE2
-	if (pipe2(ws->ready_pipe, O_CLOEXEC) != 0) THROW_POSIX_LABEL(finally, code, "pipe2");
-#else
-	if (pipe(ws->ready_pipe) != 0) THROW_POSIX_LABEL(finally, code, "pipe");
-	fcntl(ws->ready_pipe[0], F_SETFD, FD_CLOEXEC);
-	fcntl(ws->ready_pipe[1], F_SETFD, FD_CLOEXEC);
-#endif
+	ws->ready_event = CreateEventW(NULL, TRUE, FALSE, NULL);
+	if (!ws->ready_event) THROW_POSIX_LABEL(finally, code, "CreateEvent");
 
 	chan = Tcl_MakeFileChannel(pipe_read, TCL_READABLE);
 	pipe_read = INVALID_HANDLE_VALUE;
@@ -342,13 +330,10 @@ static OBJCMD(cmd_create_watch) //<<<
 	if (!ws->thread_handle)
 		THROW_ERROR_LABEL(finally, code, "Failed to create dirwatch thread");
 
-	// Wait for thread to be ready
-	{
-		char c;
-		(void)read(ws->ready_pipe[0], &c, 1);
-		close(ws->ready_pipe[0]);
-		ws->ready_pipe[0] = -1;
-	}
+	// Wait for thread to finish stream initialization
+	WaitForSingleObject(ws->ready_event, INFINITE);
+	CloseHandle(ws->ready_event);
+	ws->ready_event = NULL;
 
 	Tcl_CreateCloseHandler(chan, watch_close_handler, ws);
 	ws = NULL;
@@ -360,8 +345,7 @@ finally:
 	if (pipe_read != INVALID_HANDLE_VALUE) CloseHandle(pipe_read);
 	if (pipe_write != INVALID_HANDLE_VALUE) CloseHandle(pipe_write);
 	if (ws) {
-		if (ws->ready_pipe[0] != -1) close(ws->ready_pipe[0]);
-		if (ws->ready_pipe[1] != -1) close(ws->ready_pipe[1]);
+		if (ws->ready_event) CloseHandle(ws->ready_event);
 		ckfree(ws);
 	}
 	if (chan) {
