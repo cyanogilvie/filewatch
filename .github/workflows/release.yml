@@ -85,7 +85,7 @@ jobs:
       run: |
         pkg_dir="filewatch-${{ steps.version.outputs.version }}"
         mkdir -p "/tmp/win/${pkg_dir}"
-        cp buildwin/teabase/libfilewatch.dll "/tmp/win/${pkg_dir}/"
+        cp buildwin/teabase/*filewatch.dll "/tmp/win/${pkg_dir}/"
         cp buildwin/teabase/pkgIndex.tcl "/tmp/win/${pkg_dir}/"
         # Copy all configured Tcl scripts from the build dir
         cp buildwin/teabase/*.tcl "/tmp/win/${pkg_dir}/" 2>/dev/null || true
