@@ -288,8 +288,8 @@ Download and extract [the
 release](https://github.com/cyanogilvie/filewatch/releases), then:
 
 ``` sh
-tar xf filewatch-v2.4.1.tar.gz
-cd filewatch-v2.4.1
+tar xf filewatch-v2.4.2.tar.gz
+cd filewatch-v2.4.2
 meson setup builddir --buildtype=release
 meson compile -C builddir
 meson install -C builddir
