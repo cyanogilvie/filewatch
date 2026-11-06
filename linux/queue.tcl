@@ -68,6 +68,10 @@ oo::class create ::inotify::queue {
 	#>>>
 
 	method _readable {} { #<<<
+		# The callback may destroy this queue (directly, or by destroying a
+		# watchdir that owns it).  The coroutine keeps running after that, so
+		# check after each callback and stop delivering the rest of the batch.
+		set ns	[namespace current]
 		while 1 {
 			yield
 
@@ -103,8 +107,14 @@ oo::class create ::inotify::queue {
 					try {
 						uplevel #0 $cb [list $evdict]
 					} on error {errmsg options} {
-						my log error "Error invoking callback for event ($evdict): $errmsg\n[dict get $options -errorinfo]"
+						set msg	"Error invoking callback for event ($evdict): $errmsg\n[dict get $options -errorinfo]"
+						if {[namespace exists $ns]} {
+							my log error $msg
+						} else {
+							puts stderr $msg
+						}
 					}
+					if {![namespace exists $ns]} return
 				}
 			}
 		}

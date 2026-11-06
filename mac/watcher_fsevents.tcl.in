@@ -29,6 +29,7 @@ oo::class create @NS_DRIVER@::watcher {
 	#>>>
 
 	method _readable {} { #<<<
+		set ns	[namespace current]
 		set buf	{}
 		yield
 
@@ -36,6 +37,8 @@ oo::class create @NS_DRIVER@::watcher {
 			append buf [chan read $stream]
 			if {[chan eof $stream]} break
 			@NS_DRIVER@::dispatch_events buf $cb
+			# The callback may have destroyed this watcher (dispatch_events then stops early)
+			if {![namespace exists $ns]} return
 			yield
 		}
 

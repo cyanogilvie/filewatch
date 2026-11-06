@@ -280,6 +280,71 @@ test watchdir-1.8 {Backend channel outliving the library doesn't crash} -setup {
 } -result {alive {}}
 #>>>
 
+oo::class create destroy_on_new_file { #<<<
+	superclass filewatch::watchdir
+	method new_file path {
+		lappend ::wd_calls $path
+		my destroy
+	}
+}
+
+#>>>
+proc capture_bgerrors script { #<<<
+	# Run $script with background errors collected in ::bgerrs rather than reported
+	set old	[interp bgerror {}]
+	set ::bgerrs	{}
+	interp bgerror {} [list apply {{msg opts} {lappend ::bgerrs $msg}}]
+	try {
+		uplevel 1 $script
+	} finally {
+		interp bgerror {} $old
+	}
+}
+
+#>>>
+test watchdir-3.1 {Destroying the watchdir from a callback stops delivery of the rest of the batch} -setup { #<<<
+	set dir	[makeDirectory watchdir_cbdestroy]
+	set ::wd_calls	{}
+} -body {
+	capture_bgerrors {
+		set wd	[destroy_on_new_file new $dir]
+		after 100 [list apply {dir {
+			foreach f {a b c d} {close [open [file join $dir $f.txt] w]}
+		}} $dir]
+		after 600 {set ::wd_done 1}
+		vwait ::wd_done
+	}
+	list [llength $::wd_calls] $::bgerrs [info object isa object $wd]
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	removeDirectory watchdir_cbdestroy
+	unset -nocomplain wd dir ::wd_calls ::wd_done ::bgerrs
+} -result {1 {} 0}
+#>>>
+test watchdir-3.2 {Destroying the watchdir from a callback during a new-directory scan} -setup { #<<<
+	# A directory moved into the watched tree is scanned with _add_watches,
+	# which calls new_file for each file it contains
+	set dir		[makeDirectory watchdir_cbdestroy_scan]
+	set src		[makeDirectory watchdir_cbdestroy_src]
+	file mkdir [file join $src sub]
+	foreach f {a b c d} {close [open [file join $src sub $f.txt] w]}
+	set ::wd_calls	{}
+} -body {
+	capture_bgerrors {
+		set wd	[destroy_on_new_file new $dir]
+		after 100 [list file rename [file join $src sub] [file join $dir sub]]
+		after 600 {set ::wd_done 1}
+		vwait ::wd_done
+	}
+	list [llength $::wd_calls] $::bgerrs [info object isa object $wd]
+} -cleanup {
+	if {[info exists wd] && [info object isa object $wd]} {$wd destroy}
+	removeDirectory watchdir_cbdestroy_scan
+	removeDirectory watchdir_cbdestroy_src
+	unset -nocomplain wd dir src ::wd_calls ::wd_done ::bgerrs
+} -result {1 {} 0}
+#>>>
+
 # inotify backwards-compat alias
 ::tcltest::testConstraint inotify [expr {[info object isa class ::inotify::watchdir]}]
 

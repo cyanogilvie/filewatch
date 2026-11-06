@@ -89,6 +89,28 @@ test queue-1.4.1 {Queue destroy with active watches} -constraints inotify -body 
 	unset -nocomplain q
 } -result 0
 #>>>
+test queue-1.4.2 {Destroying the queue from its callback stops delivery of the rest of the batch} -constraints inotify -setup { #<<<
+	set ::q_calls	{}
+	set ::bgerrs	{}
+	set old_bgerror	[interp bgerror {}]
+	interp bgerror {} [list apply {{msg opts} {lappend ::bgerrs $msg}}]
+	set q	[inotify::queue new [list apply {ev {
+		lappend ::q_calls [dict get $ev name]
+		[uplevel #0 {set q}] destroy
+	}}]]
+	$q add_watch $tmpdir {IN_CREATE}
+} -body {
+	foreach f {a b c d} {close [open [file join $tmpdir cbdestroy_$f] w]}
+	after 300 {set ::done 1}
+	vwait ::done
+	list [llength $::q_calls] $::bgerrs [info object isa object $q]
+} -cleanup {
+	interp bgerror {} $old_bgerror
+	foreach f {a b c d} {file delete -force [file join $tmpdir cbdestroy_$f]}
+	if {[info exists q] && [info object isa object $q]} {$q destroy}
+	unset -nocomplain q old_bgerror ::q_calls ::bgerrs ::done
+} -result {1 {} 0}
+#>>>
 test queue-1.5 {Queue callback receives path in event} -constraints inotify -setup { #<<<
 	set ::ev_path {}
 	set q	[inotify::queue new [list apply {ev {

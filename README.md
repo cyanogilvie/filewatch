@@ -60,7 +60,9 @@ Create a watchdir object named *objectName* watching *dir*.
 Create a watchdir object with an auto-generated name watching *dir*.
 
 *objectName* **destroy**  
-Stop watching and clean up.
+Stop watching and clean up. It is safe to destroy the watchdir from
+within **new_file** or **remove_file**: no further methods are called
+for the remaining events in the batch being delivered.
 
 ## Methods for subclass override
 
@@ -148,7 +150,9 @@ then an error is raised.
 
 *objectName* **destroy**  
 Delete the queue. All watches feeding this queue are removed and the
-underlying channel is closed.
+underlying channel is closed. It is safe to destroy the queue from
+within its *callback*: the callback is not invoked for the remaining
+events in the batch being delivered.
 
 ## inotify::queue example
 

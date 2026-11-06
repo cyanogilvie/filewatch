@@ -426,9 +426,19 @@ static OBJCMD(cmd_dispatch_events) //<<<
 	Tcl_Obj*			ev = NULL;
 	Tcl_Obj*			cb = NULL;
 	Tcl_Obj*			tmp = NULL;
+	Tcl_Obj*			nsname = NULL;
 
 	enum {A_cmd, A_BUFVAR, A_CB, A_objc};
 	CHECK_ARGS_LABEL(finally, code, "bufvar cb");
+
+	/*
+	 * A callback may destroy the watcher that called us (directly, or by
+	 * destroying the watchdir that owns it).  Remember the caller's namespace
+	 * (the watcher object's) and stop delivering the rest of the batch once it
+	 * is gone, rather than invoking each remaining callback into a deleted
+	 * object.
+	 */
+	replace_tclobj(&nsname, Tcl_NewStringObj(Tcl_GetCurrentNamespace(interp)->fullName, -1));
 
 	buf = Tcl_ObjGetVar2(interp, objv[A_BUFVAR], NULL, TCL_LEAVE_ERR_MSG);
 	if (!buf) { code=TCL_ERROR; goto finally; }
@@ -486,6 +496,9 @@ static OBJCMD(cmd_dispatch_events) //<<<
 			Tcl_BackgroundException(interp, cb_code);
 			Tcl_ResetResult(interp);
 		}
+
+		if (!Tcl_FindNamespace(interp, Tcl_GetString(nsname), NULL, TCL_GLOBAL_ONLY))
+			goto finally;	// Caller destroyed: drop the rest, and leave its buffer alone
 	}
 
 	const size_t remaining = raw_len - offset;
@@ -507,6 +520,7 @@ finally:
 	replace_tclobj(&ev,			NULL);
 	replace_tclobj(&cb,			NULL);
 	replace_tclobj(&tmp,		NULL);
+	replace_tclobj(&nsname,		NULL);
 	return code;
 }
 
