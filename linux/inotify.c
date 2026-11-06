@@ -350,7 +350,20 @@ finally:
 int Inotify_Unload(Tcl_Interp* interp) //<<<
 {
 	Tcl_Namespace* ns = Tcl_FindNamespace(interp, NS_DRIVER_STR, NULL, TCL_GLOBAL_ONLY);
-	if (ns) Tcl_DeleteNamespace(ns);
+	if (ns) {
+		/*
+		 * Destroy the queue class (and so all queue instances) before deleting
+		 * the namespace: namespace deletion removes its commands in hash order,
+		 * and the queue destructor needs rm_watch, which lives in the same
+		 * namespace.  Fails harmlessly if the interp is being deleted (TclOO
+		 * doesn't run destructors then anyway).
+		 */
+		(void)Tcl_EvalEx(interp,
+			"if {[info object isa class " NS_DRIVER_STR "::queue]} {" NS_DRIVER_STR "::queue destroy}",
+			-1, TCL_EVAL_GLOBAL);
+		Tcl_ResetResult(interp);
+		Tcl_DeleteNamespace(ns);
+	}
 
 	Tcl_DeleteAssocData(interp, ASSOC_KEY);
 
