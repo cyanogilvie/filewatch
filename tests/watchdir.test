@@ -204,6 +204,24 @@ test watchdir-1.6 {Watchdir respects maxsize} -setup { #<<<
 } -result {0 1}
 #>>>
 
+proc run_child script { #<<<
+	# Run $script in a separate tclsh.  Returns {stdout stderr}, with any
+	# valgrind report lines (from meson test --wrapper valgrind
+	# --trace-children=yes) filtered out of stderr.  A crash or non-zero exit
+	# status raises an error.
+	set errfile	[makeFile {} child_stderr]
+	try {
+		set out	[exec [::tcltest::interpreter] $script 2> $errfile]
+		set h	[open $errfile]
+		try {set err [read $h]} finally {close $h}
+		set err	[join [lsearch -all -inline -not -regexp [split $err \n] {^==[0-9]+==}] \n]
+		list $out [string trim $err]
+	} finally {
+		removeFile child_stderr
+	}
+}
+
+#>>>
 test watchdir-1.7 {Exit with a live watchdir doesn't crash} -setup { #<<<
 	# Regression: on interp deletion Tcl 9 unloads the library (Filewatch_Unload
 	# then dlclose / FreeLibrary) before closing the interp's channels, and TclOO
@@ -222,15 +240,14 @@ test watchdir-1.7 {Exit with a live watchdir doesn't crash} -setup { #<<<
 		after 200 {set ::done 1}
 		vwait ::done
 		puts alive
-		exit 0
 	}] watchdir_exit.tcl]
 } -body {
-	exec [::tcltest::interpreter] $script 2>@1
+	run_child $script
 } -cleanup {
 	removeFile watchdir_exit.tcl
 	removeDirectory watchdir_exit
 	unset -nocomplain dir script
-} -result alive
+} -result {alive {}}
 #>>>
 test watchdir-1.8 {Backend channel outliving the library doesn't crash} -setup { #<<<
 	# Deterministic version of watchdir-1.7: whether the library is unloaded
@@ -253,15 +270,14 @@ test watchdir-1.8 {Backend channel outliving the library doesn't crash} -setup {
 		unload $lib Filewatch
 		interp delete other
 		puts alive
-		exit 0
 	}] watchdir_unload.tcl]
 } -body {
-	exec [::tcltest::interpreter] $script 2>@1
+	run_child $script
 } -cleanup {
 	removeFile watchdir_unload.tcl
 	removeDirectory watchdir_unload
 	unset -nocomplain dir script
-} -result alive
+} -result {alive {}}
 #>>>
 
 # inotify backwards-compat alias
