@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <tclstuff.h>
+#include <tip445.h>		// Tcl_FreeInternalRep etc. for Tcl 8.6 (no-op where Tcl has the API)
 
 #ifndef INT2PTR
 #define INT2PTR(p) ((void *)(intptr_t)(p))
