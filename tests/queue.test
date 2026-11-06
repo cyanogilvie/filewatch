@@ -75,6 +75,20 @@ test queue-1.4 {Queue destroy cleans up channel} -constraints inotify -body { #<
 	unset -nocomplain q before after
 } -result 1
 #>>>
+test queue-1.4.1 {Queue destroy with active watches} -constraints inotify -body { #<<<
+	# Regression: get_queue_fd_from_chan had Tcl_GetChannelHandle write a
+	# pointer-sized ClientData into an int, smashing the stack canary in
+	# cmd_rm_watch (which destroy calls for each watch) on linux/arm64/musl
+	set q	[inotify::queue new [list apply {ev {}}]]
+	$q add_watch $tmpdir {IN_CREATE}
+	$q rm_watch $tmpdir
+	$q add_watch $tmpdir {IN_CREATE}
+	$q destroy
+	info object isa object $q
+} -cleanup {
+	unset -nocomplain q
+} -result 0
+#>>>
 test queue-1.5 {Queue callback receives path in event} -constraints inotify -setup { #<<<
 	set ::ev_path {}
 	set q	[inotify::queue new [list apply {ev {

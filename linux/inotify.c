@@ -137,6 +137,7 @@ static int get_queue_fd_from_chan(Tcl_Interp* interp, Tcl_Obj* handle, int* queu
 	int			code = TCL_OK;
 	Tcl_Channel	channel;
 	int			chan_mode;
+	ClientData	fd_handle;
 
 	channel = Tcl_GetChannel(interp, Tcl_GetString(handle), &chan_mode);
 	if (!channel)
@@ -145,8 +146,11 @@ static int get_queue_fd_from_chan(Tcl_Interp* interp, Tcl_Obj* handle, int* queu
 	if ((chan_mode & TCL_READABLE) != TCL_READABLE)
 		THROW_ERROR_LABEL(finally, code, "Queue exists, but is not readable.");
 
-	if (Tcl_GetChannelHandle(channel, TCL_READABLE, (ClientData*)queue_fd) != TCL_OK)
+	// Tcl_GetChannelHandle writes a pointer-sized ClientData: never point it at an int
+	if (Tcl_GetChannelHandle(channel, TCL_READABLE, &fd_handle) != TCL_OK)
 		THROW_ERROR_LABEL(finally, code, "Couldn't retrieve queue fd from channel");
+
+	*queue_fd = (int)(intptr_t)fd_handle;
 
 finally:
 	return code;
