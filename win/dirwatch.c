@@ -82,8 +82,11 @@ static const struct {
 	{0}
 };
 
+struct watch_state;
+
 struct interp_cx {
-	Tcl_Obj*	lit[L_size];
+	Tcl_Obj*			lit[L_size];
+	struct watch_state*	watches;	// Live watches created in this interp, so they can be detached before the library is unloaded
 };
 
 // Wire format for events through the pipe <<<
@@ -108,6 +111,10 @@ struct watch_state {
 	HANDLE		thread_handle;
 	BOOL		recursive;
 	DWORD		filter;
+	Tcl_Channel			chan;
+	struct interp_cx*	l;
+	struct watch_state*	prev;
+	struct watch_state*	next;
 	BYTE		buffer[65536];
 };
 
@@ -195,10 +202,28 @@ static DWORD WINAPI dirwatch_thread(LPVOID param) //<<<
 // >>>
 // Channel close handler <<<
 
-static void watch_close_handler(ClientData cd) //<<<
+static void watch_link(struct interp_cx* l, struct watch_state* ws) //<<<
 {
-	struct watch_state* ws = cd;
+	ws->l		= l;
+	ws->prev	= NULL;
+	ws->next	= l->watches;
+	if (ws->next) ws->next->prev = ws;
+	l->watches	= ws;
+}
 
+//>>>
+static void watch_unlink(struct watch_state* ws) //<<<
+{
+	if (ws->prev)	ws->prev->next	= ws->next;
+	else			ws->l->watches	= ws->next;
+	if (ws->next)	ws->next->prev	= ws->prev;
+	ws->prev = ws->next = NULL;
+	ws->l = NULL;
+}
+
+//>>>
+static void watch_free(struct watch_state* ws) //<<<
+{
 	SetEvent(ws->stop_event);
 	WaitForSingleObject(ws->thread_handle, 5000);
 
@@ -207,6 +232,35 @@ static void watch_close_handler(ClientData cd) //<<<
 	CloseHandle(ws->dir_handle);
 	CloseHandle(ws->stop_event);
 	ckfree(ws);
+}
+
+//>>>
+static void watch_close_handler(ClientData cd) //<<<
+{
+	struct watch_state* ws = cd;
+
+	watch_unlink(ws);
+	watch_free(ws);
+}
+
+//>>>
+static void detach_watches(struct interp_cx* l) //<<<
+{
+	/*
+	 * Called when the interp_cx is torn down, which happens (at the latest) when
+	 * the library is unloaded.  Any channels still open at that point would
+	 * otherwise call watch_close_handler after the DLL has been unmapped (Tcl 9
+	 * unloads libraries during interp deletion before the channel table is
+	 * cleaned up, and TclOO doesn't run destructors then).  Stop the thread and
+	 * remove the close handler now: the channel is left as a plain pipe channel
+	 * that will see EOF.
+	 */
+	while (l->watches) {
+		struct watch_state* ws = l->watches;
+		Tcl_DeleteCloseHandler(ws->chan, watch_close_handler, ws);
+		watch_unlink(ws);
+		watch_free(ws);
+	}
 }
 
 //>>>
@@ -335,6 +389,8 @@ static OBJCMD(cmd_create_watch) //<<<
 	CloseHandle(ws->ready_event);
 	ws->ready_event = NULL;
 
+	ws->chan = chan;
+	watch_link(l, ws);
 	Tcl_CreateCloseHandler(chan, watch_close_handler, ws);
 	ws = NULL;
 
@@ -465,6 +521,7 @@ static void free_interp_cx(ClientData clientdata, Tcl_Interp* interp) //<<<
 {
 	(void)interp;
 	struct interp_cx* l = clientdata;
+	detach_watches(l);
 	for (int i = 0; i < L_size; i++) replace_tclobj(&l->lit[i], NULL);
 	ckfree(l);
 }
@@ -501,7 +558,7 @@ int Dirwatch_Init(Tcl_Interp* interp) //<<<
 finally:
 	if (code != TCL_OK) {
 		if (ns) Tcl_DeleteNamespace(ns);
-		Tcl_SetAssocData(interp, NS_DRIVER_STR, NULL, NULL);
+		Tcl_DeleteAssocData(interp, NS_DRIVER_STR);
 	}
 	replace_tclobj(&script_fn, NULL);
 	return code;
@@ -512,7 +569,8 @@ int Dirwatch_Unload(Tcl_Interp* interp) //<<<
 {
 	Tcl_Namespace* ns = Tcl_FindNamespace(interp, NS_DRIVER_STR, NULL, TCL_GLOBAL_ONLY);
 	if (ns) Tcl_DeleteNamespace(ns);
-	Tcl_SetAssocData(interp, NS_DRIVER_STR, NULL, NULL);
+	// Calls free_interp_cx, which detaches any still-open watches before the library is unmapped
+	Tcl_DeleteAssocData(interp, NS_DRIVER_STR);
 	return TCL_OK;
 }
 

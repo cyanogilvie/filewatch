@@ -204,6 +204,66 @@ test watchdir-1.6 {Watchdir respects maxsize} -setup { #<<<
 } -result {0 1}
 #>>>
 
+test watchdir-1.7 {Exit with a live watchdir doesn't crash} -setup { #<<<
+	# Regression: on interp deletion Tcl 9 unloads the library (Filewatch_Unload
+	# then dlclose / FreeLibrary) before closing the interp's channels, and TclOO
+	# doesn't run destructors then.  A backend close handler left on a still-open
+	# stream channel would be called after the library was unmapped.  Needs a
+	# separate process because the library isn't unloaded while this interp
+	# still holds a reference to it.
+	set dir		[makeDirectory watchdir_exit]
+	set script	[makeFile [string map [list \
+		%load%	[list [::tcltest::loadScript]] \
+		%dir%	[list $dir] \
+	] {
+		{*}%load%
+		set wd	[filewatch::watchdir new %dir%]
+		close [open [file join %dir% f.txt] w]
+		after 200 {set ::done 1}
+		vwait ::done
+		puts alive
+		exit 0
+	}] watchdir_exit.tcl]
+} -body {
+	exec [::tcltest::interpreter] $script 2>@1
+} -cleanup {
+	removeFile watchdir_exit.tcl
+	removeDirectory watchdir_exit
+	unset -nocomplain dir script
+} -result alive
+#>>>
+test watchdir-1.8 {Backend channel outliving the library doesn't crash} -setup { #<<<
+	# Deterministic version of watchdir-1.7: whether the library is unloaded
+	# before the channel table is cleaned up on exit depends on assoc data hash
+	# order.  Here the backend channel is shared into a second interp so that it
+	# survives the watchdir's destruction during [unload], and is only closed
+	# (invoking any backend close handler) after the library has been unmapped.
+	set dir		[makeDirectory watchdir_unload]
+	set script	[makeFile [string map [list \
+		%load%	[list [::tcltest::loadScript]] \
+		%dir%	[list $dir] \
+	] {
+		{*}%load%
+		set before	[chan names]
+		set wd		[filewatch::watchdir new %dir%]
+		set chans	[lmap c [chan names] {if {$c in $before} continue; set c}]
+		interp create other
+		foreach c $chans {interp share {} $c other}
+		set lib	[lindex [lsearch -inline -index 1 [info loaded {}] Filewatch] 0]
+		unload $lib Filewatch
+		interp delete other
+		puts alive
+		exit 0
+	}] watchdir_unload.tcl]
+} -body {
+	exec [::tcltest::interpreter] $script 2>@1
+} -cleanup {
+	removeFile watchdir_unload.tcl
+	removeDirectory watchdir_unload
+	unset -nocomplain dir script
+} -result alive
+#>>>
+
 # inotify backwards-compat alias
 ::tcltest::testConstraint inotify [expr {[info object isa class ::inotify::watchdir]}]
 

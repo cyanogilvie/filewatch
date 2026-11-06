@@ -340,7 +340,7 @@ int Inotify_Init(Tcl_Interp* interp) //<<<
 finally:
 	if (code != TCL_OK) {
 		if (ns) { Tcl_DeleteNamespace(ns); ns = NULL; }
-		Tcl_SetAssocData(interp, ASSOC_KEY, NULL, NULL);
+		Tcl_DeleteAssocData(interp, ASSOC_KEY);
 	}
 	replace_tclobj(&script_fn, NULL);
 	return code;
@@ -352,7 +352,7 @@ int Inotify_Unload(Tcl_Interp* interp) //<<<
 	Tcl_Namespace* ns = Tcl_FindNamespace(interp, NS_DRIVER_STR, NULL, TCL_GLOBAL_ONLY);
 	if (ns) Tcl_DeleteNamespace(ns);
 
-	Tcl_SetAssocData(interp, ASSOC_KEY, NULL, NULL);
+	Tcl_DeleteAssocData(interp, ASSOC_KEY);
 
 	return TCL_OK;
 }

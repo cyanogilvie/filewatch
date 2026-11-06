@@ -86,8 +86,11 @@ static const struct {
 	{0}
 };
 
+struct stream_state;
+
 struct interp_cx {
-	Tcl_Obj*	lit[L_size];
+	Tcl_Obj*				lit[L_size];
+	struct stream_state*	streams;	// Live streams created in this interp, so they can be detached before the library is unloaded
 };
 
 // Wire format for events through the pipe:
@@ -111,6 +114,10 @@ struct stream_state {
 	CFArrayRef					paths;
 	double						latency;
 	FSEventStreamCreateFlags	create_flags;
+	Tcl_Channel					chan;
+	struct interp_cx*			l;
+	struct stream_state*		prev;
+	struct stream_state*		next;
 };
 
 
@@ -186,10 +193,28 @@ static Tcl_ThreadCreateType fsevents_thread(ClientData clientData) //<<<
 //>>>
 // >>>
 
-static void stream_close_handler(ClientData cd) //<<<
+static void stream_link(struct interp_cx* l, struct stream_state* ss) //<<<
 {
-	struct stream_state* ss = cd;
+	ss->l		= l;
+	ss->prev	= NULL;
+	ss->next	= l->streams;
+	if (ss->next) ss->next->prev = ss;
+	l->streams	= ss;
+}
 
+//>>>
+static void stream_unlink(struct stream_state* ss) //<<<
+{
+	if (ss->prev)	ss->prev->next	= ss->next;
+	else			ss->l->streams	= ss->next;
+	if (ss->next)	ss->next->prev	= ss->prev;
+	ss->prev = ss->next = NULL;
+	ss->l = NULL;
+}
+
+//>>>
+static void stream_free(struct stream_state* ss) //<<<
+{
 	ss->running = 0;
 	if (ss->run_loop)
 		CFRunLoopStop(ss->run_loop);
@@ -203,12 +228,41 @@ static void stream_close_handler(ClientData cd) //<<<
 }
 
 //>>>
+static void stream_close_handler(ClientData cd) //<<<
+{
+	struct stream_state* ss = cd;
+
+	stream_unlink(ss);
+	stream_free(ss);
+}
+
+//>>>
+static void detach_streams(struct interp_cx* l) //<<<
+{
+	/*
+	 * Called when the interp_cx is torn down, which happens (at the latest) when
+	 * the library is unloaded.  Any channels still open at that point would
+	 * otherwise call stream_close_handler after the library has been unmapped
+	 * (Tcl 9 unloads libraries during interp deletion before the channel table
+	 * is cleaned up, and TclOO doesn't run destructors then).  Stop the thread
+	 * and remove the close handler now: the channel is left as a plain pipe
+	 * channel that will see EOF.
+	 */
+	while (l->streams) {
+		struct stream_state* ss = l->streams;
+		Tcl_DeleteCloseHandler(ss->chan, stream_close_handler, ss);
+		stream_unlink(ss);
+		stream_free(ss);
+	}
+}
+
+//>>>
 
 // Tcl Commands
 static OBJCMD(cmd_create_stream) // fsevents::create_stream ?-latency N? ?-flags flaglist? ?--? path ?path ...? <<<
 {
 	int						code = TCL_OK;
-	(void)cdata;
+	struct interp_cx*		l = cdata;
 	int						pipefd[2] = {-1, -1};
 	CFMutableArrayRef		cf_paths = NULL;
 	struct stream_state*	ss = NULL;
@@ -338,6 +392,8 @@ static OBJCMD(cmd_create_stream) // fsevents::create_stream ?-latency N? ?-flags
 		ss->ready_pipe[0] = -1;
 	}
 
+	ss->chan = chan;
+	stream_link(l, ss);
 	Tcl_CreateCloseHandler(chan, stream_close_handler, ss);
 	ss = NULL;	// ownership transferred to close handler
 
@@ -470,6 +526,7 @@ static void free_interp_cx(ClientData clientdata, Tcl_Interp* interp) //<<<
 	(void)interp;
 	struct interp_cx* l = clientdata;
 
+	detach_streams(l);
 	for (int i=0; i<L_size; i++) replace_tclobj(&l->lit[i], NULL);
 	ckfree(l);	l = NULL;
 }
@@ -509,7 +566,7 @@ int Fsevents_Init(Tcl_Interp* interp) //<<<
 finally:
 	if (code != TCL_OK) {
 		if (ns) Tcl_DeleteNamespace(ns);
-		Tcl_SetAssocData(interp, NS_DRIVER_STR, NULL, NULL);
+		Tcl_DeleteAssocData(interp, NS_DRIVER_STR);
 	}
 	replace_tclobj(&script_fn, NULL);
 	return code;
@@ -521,7 +578,8 @@ int Fsevents_Unload(Tcl_Interp* interp) //<<<
 	Tcl_Namespace* ns = Tcl_FindNamespace(interp, NS_DRIVER_STR, NULL, TCL_GLOBAL_ONLY);
 	if (ns) Tcl_DeleteNamespace(ns);
 
-	Tcl_SetAssocData(interp, NS_DRIVER_STR, NULL, NULL);
+	// Calls free_interp_cx, which detaches any still-open streams before the library is unmapped
+	Tcl_DeleteAssocData(interp, NS_DRIVER_STR);
 
 	return TCL_OK;
 }
